@@ -47,6 +47,15 @@ jobs:
           trivy_vuln_enabled: false
           socket_tier_1_enabled: false
 
+          # --- Socket credentials, so findings land in the Socket dashboard.
+          #     The input is named *_api_key but the repo secret is
+          #     SOCKET_SECURITY_API_TOKEN (the same one socket-scan.yml uses);
+          #     that name is a documented alias, so no new secret is needed.
+          #     This only routes results — it does NOT enable reachability,
+          #     which stays off via socket_tier_1_enabled above. ---
+          socket_security_api_key: ${{ secrets.SOCKET_SECURITY_API_TOKEN }}
+          socket_org: stellar
+
           # --- disabled: PR integrations, since this runs on workflow_dispatch ---
           pr_comment_enabled: false
           pr_labels_enabled: false
