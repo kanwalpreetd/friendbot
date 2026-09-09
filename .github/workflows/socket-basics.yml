@@ -1,14 +1,31 @@
 # Socket Basics security scan for friendbot.
 # Upstream: https://github.com/SocketDev/socket-basics
+# Scanner settings live in .socket-basics.json at the repo root.
 #
 # This is SEPARATE from socket-scan.yml. The two do different jobs:
 #   socket-scan.yml   application dependency CVEs + Tier 1 reachability
-#   socket-basics.yml first-party code (SAST), leaked secrets, and containers
+#   socket-basics.yml SAST, leaked secrets, and Trivy container scanning
 #
-# Scanners enabled here:
-#   go_sast_enabled          bundled SAST rules for Go
-#   secret_scanning_enabled  TruffleHog credential detection
-#   dockerfiles              Trivy scanning of this repo's Dockerfile
+# WHY THIS RUNS THE CONTAINER DIRECTLY INSTEAD OF `uses: SocketDev/socket-basics`
+# ------------------------------------------------------------------------------
+# The published action's action.yml declares only `using`, `image` and `env` --
+# no `args` and no `entrypoint` -- so a workflow cannot pass CLI flags or a
+# config file through it. Everything given via `with:` arrives as an INPUT_*
+# environment variable, and socket-basics ranks its config sources:
+#
+#   1. CLI options                      (highest)
+#   2. JSON config OR dashboard config
+#   3. environment variables            (lowest)  <- where `with:` inputs land
+#
+# So with an API key present, the Socket dashboard config outranked every input
+# we set. Observed 2026-09-09: the dashboard's all_languages_enabled=True
+# overrode our single-language setting and OpenGrep ran all 13 rule files, and
+# the dashboard's jira_url auto-enabled the Jira notifier, which filed tickets.
+#
+# Passing --config avoids both. socket-basics loads the dashboard config only
+# when no JSON config is supplied, so .socket-basics.json is authoritative and
+# no Jira notifier gets configured. The API key is still passed, so results are
+# still submitted to the Socket dashboard.
 #
 # Trigger: manual only while we evaluate the tool.
 
@@ -27,35 +44,18 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Run Socket Basics
-        uses: SocketDev/socket-basics@5b615c89d17764ab46de2f2de63122ca2ef6a4be # v3.1.0
-        with:
-          # --- enabled: first-party code scanning ---
-          go_sast_enabled: true
-          secret_scanning_enabled: true
-
-          # --- enabled: container scanning. Naming a Dockerfile auto-enables it;
-          #     trivy_image_scanning_disabled is the kill switch, left false.
-          #     To also scan a published image, add e.g.
-          #       container_images: stellar/friendbot:latest ---
-          dockerfiles: Dockerfile
-          trivy_image_scanning_disabled: false
-
-          # --- disabled: application dependency CVEs + reachability.
-          #     socket-scan.yml owns that surface. trivy_vuln_enabled covers
-          #     language-ecosystem dependencies and is independent of the
-          #     container scanning enabled above. ---
-          trivy_vuln_enabled: false
-          socket_tier_1_enabled: false
-
-          # --- Socket credentials, so findings land in the Socket dashboard.
-          #     The input is named *_api_key but the repo secret is
-          #     SOCKET_SECURITY_API_TOKEN (the same one socket-scan.yml uses);
-          #     that name is a documented alias, so no new secret is needed.
-          #     This only routes results — it does NOT enable reachability,
-          #     which stays off via socket_tier_1_enabled above. ---
-          socket_security_api_key: ${{ secrets.SOCKET_SECURITY_API_TOKEN }}
-          socket_org: stellar
-
-          # --- disabled: PR integrations, since this runs on workflow_dispatch ---
-          pr_comment_enabled: false
-          pr_labels_enabled: false
+        env:
+          SOCKET_SECURITY_API_TOKEN: ${{ secrets.SOCKET_SECURITY_API_TOKEN }}
+          SOCKET_ORG: stellar
+        run: |
+          docker run --rm \
+            -v "$PWD:/github/workspace" \
+            -w /github/workspace \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -e SOCKET_SECURITY_API_TOKEN \
+            -e SOCKET_ORG \
+            -e GITHUB_REPOSITORY \
+            -e GITHUB_REF_NAME \
+            -e GITHUB_SHA \
+            ghcr.io/socketdev/socket-basics:3.1.0 \
+            --config .socket-basics.json
