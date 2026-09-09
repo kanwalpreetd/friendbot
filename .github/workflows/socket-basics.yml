@@ -1,0 +1,52 @@
+# Socket Basics security scan for friendbot.
+# Upstream: https://github.com/SocketDev/socket-basics
+#
+# This is SEPARATE from socket-scan.yml. The two do different jobs:
+#   socket-scan.yml   application dependency CVEs + Tier 1 reachability
+#   socket-basics.yml first-party code (SAST), leaked secrets, and containers
+#
+# Scanners enabled here:
+#   go_sast_enabled          bundled SAST rules for Go
+#   secret_scanning_enabled  TruffleHog credential detection
+#   dockerfiles              Trivy scanning of this repo's Dockerfile
+#
+# Trigger: manual only while we evaluate the tool.
+
+name: Socket Basics security scan
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  socket-basics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Run Socket Basics
+        uses: SocketDev/socket-basics@5b615c89d17764ab46de2f2de63122ca2ef6a4be # v3.1.0
+        with:
+          # --- enabled: first-party code scanning ---
+          go_sast_enabled: true
+          secret_scanning_enabled: true
+
+          # --- enabled: container scanning. Naming a Dockerfile auto-enables it;
+          #     trivy_image_scanning_disabled is the kill switch, left false.
+          #     To also scan a published image, add e.g.
+          #       container_images: stellar/friendbot:latest ---
+          dockerfiles: Dockerfile
+          trivy_image_scanning_disabled: false
+
+          # --- disabled: application dependency CVEs + reachability.
+          #     socket-scan.yml owns that surface. trivy_vuln_enabled covers
+          #     language-ecosystem dependencies and is independent of the
+          #     container scanning enabled above. ---
+          trivy_vuln_enabled: false
+          socket_tier_1_enabled: false
+
+          # --- disabled: PR integrations, since this runs on workflow_dispatch ---
+          pr_comment_enabled: false
+          pr_labels_enabled: false
